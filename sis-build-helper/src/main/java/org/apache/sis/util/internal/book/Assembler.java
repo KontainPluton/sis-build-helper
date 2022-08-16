@@ -41,7 +41,7 @@ import org.w3c.dom.NodeList;
 import org.xml.sax.SAXException;
 
 // Share a convenience method.
-import static org.apache.sis.internal.book.CodeColorizer.toArray;
+import static org.apache.sis.util.internal.book.CodeColorizer.toArray;
 
 
 /**

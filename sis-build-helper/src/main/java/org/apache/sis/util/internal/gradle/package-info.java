@@ -31,4 +31,4 @@
  * @since   0.3
  * @module
  */
-package org.apache.sis.util.internal.maven;
+package org.apache.sis.util.internal.gradle;

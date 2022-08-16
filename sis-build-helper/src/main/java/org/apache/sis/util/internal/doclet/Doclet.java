@@ -160,7 +160,7 @@ public final class Doclet extends StandardDoclet {
      * directory can be specified with {@code <javadocResourcesDirectory>}, I have been unable to make it work even
      * with absolute paths.
      *
-     * @param  inputFile        the directory containing resources.
+     * @param  inputDirectory        the directory containing resources.
      * @param  outputDirectory  the directory where to copy the resource files.
      * @throws IOException      if an error occurred while reading or writing.
      */

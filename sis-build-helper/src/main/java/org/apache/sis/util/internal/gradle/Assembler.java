@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.sis.util.internal.maven;
+package org.apache.sis.util.internal.gradle;
 
 import java.io.File;
 import java.io.IOException;
@@ -29,19 +29,16 @@ import java.util.LinkedHashSet;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
-import org.apache.maven.artifact.Artifact;
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
-import org.apache.maven.plugins.annotations.LifecyclePhase;
-import org.apache.maven.plugins.annotations.ResolutionScope;
-import org.apache.maven.project.MavenProject;
-import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
-import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream;
-import org.gradle.api.GradleException;
 
-import static org.apache.sis.util.internal.maven.Filenames.*;
+import org.gradle.api.DefaultTask;
+import org.gradle.api.GradleException;
+import org.gradle.api.Project;
+import org.gradle.api.artifacts.*;
+import org.gradle.api.tasks.TaskAction;
+import org.gradle.internal.impldep.org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
+import org.gradle.internal.impldep.org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream;
+
+import static org.apache.sis.util.internal.gradle.Filenames.*;
 
 
 /**
@@ -69,44 +66,47 @@ import static org.apache.sis.util.internal.maven.Filenames.*;
  * @since   0.4
  * @module
  */
-@Mojo(name = "dist", defaultPhase = LifecyclePhase.INSTALL, requiresDependencyResolution = ResolutionScope.COMPILE_PLUS_RUNTIME)
-public final class Assembler extends AbstractMojo implements FilenameFilter {
+//@Mojo(name = "dist", defaultPhase = LifecyclePhase.INSTALL, requiresDependencyResolution = ResolutionScope.COMPILE_PLUS_RUNTIME)
+public final class Assembler extends DefaultTask implements FilenameFilter {
     /**
      * Project information (name, version, URL).
      */
-    @Parameter(property="project", required=true, readonly=true)
-    private MavenProject project;
+    //@Parameter(property="project", required=true, readonly=true)
+    private Project project;
 
     /**
      * Base directory of the module to compile.
      * Artifact content is expected in the {@code "src/main/artifact"} subdirectory.
      */
-    @Parameter(property="basedir", required=true, readonly=true)
+    //@Parameter(property="basedir", required=true, readonly=true)
     private String baseDirectory;
 
     /**
      * The root directory (without the "<code>target/binaries</code>" sub-directory) where JARs
      * are to be copied. It should be the directory of the root <code>pom.xml</code>.
      */
-    @Parameter(property="session.executionRootDirectory", required=true)
+    //@Parameter(property="session.executionRootDirectory", required=true)
     private String rootDirectory;
 
     /**
      * Invoked by reflection for creating the MOJO.
      */
     public Assembler() {
+        project = getProject();
+        rootDirectory = project.getRootDir().getPath();
+        baseDirectory = project.getProjectDir().getPath();
     }
 
     /**
      * Creates the distribution file.
      *
-     * @throws MojoExecutionException if the plugin execution failed.
+     * @throws GradleException if the plugin execution failed.
      */
-    @Override
+    @TaskAction
     public void execute() throws GradleException {
         final File sourceDirectory = new File(baseDirectory, ARTIFACT_PATH);
         if (!sourceDirectory.isDirectory()) {
-            throw new MojoExecutionException("Directory not found: " + sourceDirectory);
+            throw new GradleException("Directory not found: " + sourceDirectory);
         }
         final String artifactBase = FINALNAME_PREFIX + project.getVersion();
         final File targetFile = distributionFile(rootDirectory, artifactBase + ".zip");
@@ -137,16 +137,38 @@ public final class Assembler extends AbstractMojo implements FilenameFilter {
                 nf.setValue(null);
             }
         } catch (IOException e) {
-            throw new MojoExecutionException(e.getLocalizedMessage(), e);
+            throw new GradleException(e.getLocalizedMessage(), e);
         }
     }
 
     /**
      * Returns all files to include for the given Maven project.
      */
-    private static Set<File> files(final MavenProject project) throws MojoExecutionException {
+    private static Set<File> files(final Project project) throws GradleException {
         final Set<File> files = new LinkedHashSet<>();
-        files.add(project.getArtifact().getFile());
+
+        ConfigurationContainer configurations = project.getConfigurations();
+
+        String[] includeDependenciesConfigurations = {"implementation","runtimeOnly"};
+
+        for (String s : includeDependenciesConfigurations) {
+
+            Configuration configuration = configurations.getByName(s);
+
+            Configuration copiedConfiguration = configuration.copyRecursive();
+            copiedConfiguration.setCanBeResolved(true); // THIS IS IMPORTANT; AS IT IS A COPIED CONFIG I GUESS IT IS OK TO DO.
+
+            ResolvedConfiguration resolvedConfiguration = copiedConfiguration.getResolvedConfiguration();
+
+            Set<ResolvedArtifact> artifacts = resolvedConfiguration.getResolvedArtifacts();
+            for (ResolvedArtifact artifact : artifacts) {
+
+                files.add(artifact.getFile());
+
+            }
+        }
+
+        /*files.add(project.getArtifact().getFile());
         for (final Artifact dep : project.getArtifacts()) {
             final String scope = dep.getScope();
             if (Artifact.SCOPE_COMPILE.equalsIgnoreCase(scope) ||
@@ -154,9 +176,9 @@ public final class Assembler extends AbstractMojo implements FilenameFilter {
             {
                 files.add(dep.getFile());
             }
-        }
+        }*/
         if (files.remove(null)) {
-            throw new MojoExecutionException("Invocation of this MOJO shall be done together with a \"package\" Maven phase.");
+            throw new GradleException("Invocation of this MOJO shall be done together with a \"package\" Maven phase.");
         }
         return files;
     }

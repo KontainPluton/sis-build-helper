@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.sis.util.internal.maven;
+package org.apache.sis.util.internal.gradle;
 
 import java.io.File;
 import java.io.FileFilter;
@@ -28,16 +28,17 @@ import java.nio.file.Files;
 import java.nio.file.FileSystemException;
 import java.util.Set;
 import java.util.LinkedHashSet;
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
-import org.apache.maven.plugins.annotations.LifecyclePhase;
-import org.apache.maven.plugins.annotations.ResolutionScope;
-import org.apache.maven.project.MavenProject;
-import org.apache.maven.artifact.Artifact;
 
-import static org.apache.sis.internal.maven.Filenames.*;
+import org.gradle.api.DefaultTask;
+import org.gradle.api.Project;
+import org.gradle.api.GradleException;
+import org.gradle.api.artifacts.Configuration;
+import org.gradle.api.artifacts.ConfigurationContainer;
+import org.gradle.api.artifacts.ResolvedArtifact;
+import org.gradle.api.artifacts.ResolvedConfiguration;
+import org.gradle.api.tasks.TaskAction;
+
+import static org.apache.sis.util.internal.gradle.Filenames.*;
 
 
 /**
@@ -51,38 +52,40 @@ import static org.apache.sis.internal.maven.Filenames.*;
  * @since   0.3
  * @module
  */
-@Mojo(name = "collect-jars",
+/*@Mojo(name = "collect-jars",
       defaultPhase = LifecyclePhase.PACKAGE,
-      requiresDependencyResolution = ResolutionScope.RUNTIME)
-public final class JarCollector extends AbstractMojo implements FileFilter {
+      requiresDependencyResolution = ResolutionScope.RUNTIME)*/
+public final class JarCollector extends DefaultTask implements FileFilter {
     /**
      * The Maven project running this plugin.
      */
-    @Parameter(property="project", required=true, readonly=true)
-    private MavenProject project;
+    //@Parameter(property="project", required=true, readonly=true)
+    private Project project;
 
     /**
      * The root directory (without the "<code>target/binaries</code>" sub-directory) where JARs
      * are to be copied. It should be the directory of the root <code>pom.xml</code>.
      */
-    @Parameter(property="session.executionRootDirectory", required=true)
+    //@Parameter(property="session.executionRootDirectory", required=true)
     private String rootDirectory;
 
     /**
      * Invoked by reflection for creating the MOJO.
      */
     public JarCollector() {
+        project = getProject();
+        rootDirectory = project.getRootDir().getPath();
     }
 
     /**
      * Copies the {@code *.jar} files to the collect directory.
      *
-     * @throws MojoExecutionException if the plugin execution failed.
+     * @throws GradleException if the plugin execution failed.
      */
-    @Override
-    public void execute() throws MojoExecutionException {
+    @TaskAction
+    public void execute() throws GradleException {
         if (rootDirectory == null || rootDirectory.startsWith("${")) {
-            getLog().warn("Unresolved directory: " + rootDirectory);
+            getLogger().warn("Unresolved directory: " + rootDirectory);
             return;
         }
         /*
@@ -91,14 +94,14 @@ public final class JarCollector extends AbstractMojo implements FileFilter {
         try {
             collect();
         } catch (IOException e) {
-            throw new MojoExecutionException("Error collecting the JAR files.", e);
+            throw new GradleException("Error collecting the JAR files.", e);
         }
     }
 
     /**
      * Implementation of the {@link #execute()} method.
      */
-    private void collect() throws MojoExecutionException, IOException {
+    private void collect() throws GradleException, IOException {
         /*
          * Make sure that we are collecting the JAR file from a module which produced
          * such file. Some modules use pom packaging, which do not produce any JAR file.
@@ -113,7 +116,7 @@ public final class JarCollector extends AbstractMojo implements FileFilter {
         File collect = new File(rootDirectory, TARGET_DIRECTORY);
         if (!collect.exists()) {
             if (!collect.mkdir()) {
-                throw new MojoExecutionException("Failed to create \"" + TARGET_DIRECTORY + "\" directory.");
+                throw new GradleException("Failed to create \"" + TARGET_DIRECTORY + "\" directory.");
             }
         }
         if (collect.getCanonicalFile().equals(jarFile.getParentFile().getCanonicalFile())) {
@@ -132,7 +135,7 @@ public final class JarCollector extends AbstractMojo implements FileFilter {
         collect = new File(collect, BINARIES_DIRECTORY);
         if (!collect.exists()) {
             if (!collect.mkdir()) {
-                throw new MojoExecutionException("Failed to create \"" + BINARIES_DIRECTORY + "\" directory.");
+                throw new GradleException("Failed to create \"" + BINARIES_DIRECTORY + "\" directory.");
             }
         }
         File copy = new File(collect, jarFile.getName());
@@ -141,26 +144,33 @@ public final class JarCollector extends AbstractMojo implements FileFilter {
         /*
          * Copies the dependencies.
          */
-        final Set<Artifact> dependencies = project.getArtifacts();
-        if (dependencies != null) {
-            for (final Artifact artifact : dependencies) {
-                final String scope = artifact.getScope();
-                if (scope != null &&  // Maven 2.0.6 bug?
-                   (scope.equalsIgnoreCase(Artifact.SCOPE_COMPILE) ||
-                    scope.equalsIgnoreCase(Artifact.SCOPE_RUNTIME)))
-                {
-                    final File file = artifact.getFile();
-                    if (file != null) { // I'm not sure why the file is sometime null...
-                        copy = new File(collect, getFinalName(file, artifact));
-                        if (!copy.exists()) {
-                            /*
-                             * Copies the dependency only if it was not already copied. Note that
-                             * the module's JAR was copied unconditionally above (because it may
-                             * be the result of a new compilation).
-                             */
-                            linkFileToDirectory(file, copy);
-                        }
-                    }
+
+        ConfigurationContainer configurations = project.getConfigurations();
+
+        String[] includeDependenciesConfigurations = {"implementation","runtimeOnly"};
+
+        for (String s : includeDependenciesConfigurations) {
+
+            Configuration configuration = configurations.getByName(s);
+
+            Configuration copiedConfiguration = configuration.copyRecursive();
+            copiedConfiguration.setCanBeResolved(true); // THIS IS IMPORTANT; AS IT IS A COPIED CONFIG I GUESS IT IS OK TO DO.
+
+            ResolvedConfiguration resolvedConfiguration = copiedConfiguration.getResolvedConfiguration();
+
+            Set<ResolvedArtifact> artifacts = resolvedConfiguration.getResolvedArtifacts();
+            for (ResolvedArtifact artifact : artifacts) {
+
+                final File file = artifact.getFile();
+
+                copy = new File(collect, getFinalName(file, artifact));
+                if (!copy.exists()){
+                    /*
+                     * Copies the dependency only if it was not already copied. Note that
+                     * the module's JAR was copied unconditionally above (because it may
+                     * be the result of a new compilation).
+                     */
+                    linkFileToDirectory(file, copy);
                 }
             }
         }
@@ -182,7 +192,7 @@ public final class JarCollector extends AbstractMojo implements FileFilter {
               !name.endsWith("-tests.jar")   &&
               !name.endsWith("-sources.jar") &&
               !name.endsWith("-javadoc.jar") &&
-               name.startsWith(project.getBuild().getFinalName()) &&
+               name.startsWith(project.getBuildDir().getName()) &&
                pathname.isFile();
     }
 
@@ -191,7 +201,9 @@ public final class JarCollector extends AbstractMojo implements FileFilter {
      * In case of doubt, conservatively returns {@code null}.
      */
     private File getProjectFile() {
-        final File[] files = new File(project.getBuild().getDirectory()).listFiles(this);
+
+        final File[] files = project.getBuildDir().listFiles(this);
+        //final File[] files = new File(project.getBuild().getDirectory()).listFiles(this);
         if (files != null && files.length == 1) {
             return files[0];
         }
@@ -206,13 +218,13 @@ public final class JarCollector extends AbstractMojo implements FileFilter {
      * @param  artifact  the artifact that produced the given file.
      * @return the filename to use.
      */
-    private static String getFinalName(final File file, final Artifact artifact) {
+    private static String getFinalName(final File file, final ResolvedArtifact artifact) {
         String filename = file.getName();
-        final String baseVersion = artifact.getBaseVersion();
+        final String baseVersion = artifact.getModuleVersion().toString();
         if (baseVersion != null) {
             final int pos = filename.lastIndexOf(baseVersion);
             if (pos >= 0) {
-                final String version = artifact.getVersion();
+                final String version = artifact.getModuleVersion().toString();
                 if (version != null && !baseVersion.equals(version)) {
                     filename = filename.substring(0, pos) + version + filename.substring(pos + baseVersion.length());
                 }

@@ -18,7 +18,7 @@ package org.apache.sis.util.internal.doclet;
 
 import java.util.StringTokenizer;
 import com.sun.source.doctree.DocTree;
-import org.apache.sis.internal.book.CodeColorizer;
+import org.apache.sis.util.internal.book.CodeColorizer;
 
 
 /**

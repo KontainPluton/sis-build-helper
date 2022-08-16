@@ -18,6 +18,7 @@ package org.apache.sis.util.internal.unopkg;
 
 import java.io.*;
 import java.util.Enumeration;
+import java.util.Set;
 import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -26,6 +27,10 @@ import java.util.zip.ZipOutputStream;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.GradleException;
 import org.gradle.api.Project;
+import org.gradle.api.artifacts.Configuration;
+import org.gradle.api.artifacts.ConfigurationContainer;
+import org.gradle.api.artifacts.ResolvedArtifact;
+import org.gradle.api.artifacts.ResolvedConfiguration;
 import org.gradle.api.artifacts.dsl.ArtifactHandler;
 import org.gradle.api.component.Artifact;
 import org.gradle.api.tasks.TaskAction;
@@ -180,13 +185,22 @@ public final class UnoPkg extends DefaultTask implements FilenameFilter {
              * Copies the dependencies.
              */
 
-            ArtifactHandler a = project.getArtifacts();
+            ConfigurationContainer configurations = project.getConfigurations();
 
-            for (final Artifact artifact : project.getArtifacts()) {
-                final String scope = artifact.getScope();
-                if (Artifact.SCOPE_COMPILE.equalsIgnoreCase(scope) ||
-                    Artifact.SCOPE_RUNTIME.equalsIgnoreCase(scope))
-                {
+            String[] includeDependenciesConfigurations = {"implementation","runtimeOnly"};
+
+            for (String s : includeDependenciesConfigurations) {
+
+                Configuration configuration = configurations.getByName(s);
+
+                Configuration copiedConfiguration = configuration.copyRecursive();
+                copiedConfiguration.setCanBeResolved(true); // THIS IS IMPORTANT; AS IT IS A COPIED CONFIG I GUESS IT IS OK TO DO.
+
+                ResolvedConfiguration resolvedConfiguration = copiedConfiguration.getResolvedConfiguration();
+
+                Set<ResolvedArtifact> artifacts = resolvedConfiguration.getResolvedArtifacts();
+                for (ResolvedArtifact artifact : artifacts) {
+
                     final File file = artifact.getFile();
                     final String name = file.getName();
                     if (name.startsWith(TO_INFLATE)) {
@@ -194,8 +208,10 @@ public final class UnoPkg extends DefaultTask implements FilenameFilter {
                     } else {
                         copy(file, out);
                     }
+
                 }
             }
+
         } catch (IOException e) {
             throw new GradleException("Error creating the oxt file.", e);
         }
